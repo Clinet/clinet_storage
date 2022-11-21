@@ -9,11 +9,12 @@ import (
 
 //Storage is designed for stateless interactions, to set it and forget it until it's needed again
 type Storage struct {
-	Extras   map[string]*StorageObject `json:"extra,omitempty"`
+	Configs  map[string]*StorageObject `json:"configs,omitempty"`
 	Channels map[string]*StorageObject `json:"channels,omitempty"`
 	Messages map[string]*StorageObject `json:"messages,omitempty"`
 	Servers  map[string]*StorageObject `json:"servers,omitempty"`
 	Users    map[string]*StorageObject `json:"users,omitempty"`
+	path string
 }
 
 func (s *Storage) LoadFrom(state string) error {
@@ -21,25 +22,39 @@ func (s *Storage) LoadFrom(state string) error {
 		return fmt.Errorf("unable to load state %s into nil storage", state)
 	}
 
-	stateJSON, err := ioutil.ReadFile("states/" + state + ".json")
+	s.path = "states/" + state + ".json"
+
+	stateJSON, err := ioutil.ReadFile(s.path)
 	if err != nil {
-		s = &Storage{
-			Extras: make(map[string]*StorageObject),
-			Channels: make(map[string]*StorageObject),
-			Messages: make(map[string]*StorageObject),
-			Servers: make(map[string]*StorageObject),
-			Users: make(map[string]*StorageObject),
-		}
-
-		stateJSON, err = json.Marshal(s, true)
-		if err != nil {
-			return err
-		}
-
-		return ioutil.WriteFile("states/" + state + ".json", stateJSON, 0644)
+		return s.Reset()
 	}
 
-	return json.Unmarshal(stateJSON, s)
+	if err := json.Unmarshal(stateJSON, s); err != nil {
+		return s.Reset()
+	}
+
+	return nil
+}
+
+func (s *Storage) Reset() error {
+	s = &Storage{
+		Configs: make(map[string]*StorageObject),
+		Channels: make(map[string]*StorageObject),
+		Messages: make(map[string]*StorageObject),
+		Servers: make(map[string]*StorageObject),
+		Users: make(map[string]*StorageObject),
+		path: s.path,
+	}
+	return s.Save()
+}
+
+func (s *Storage) Save() error {
+	stateJSON, err := json.Marshal(s, true)
+	if err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile(s.path, stateJSON, 0644)
 }
 
 type StorageObject struct {
@@ -58,32 +73,37 @@ func (so *StorageObject) Del(key string) {
 	delete(so.Data, key)
 }
 
-func (s *Storage) ExtraGet(extraID, key string) (interface{}, error) {
-	if s.Extras == nil {
-		s.Extras = make(map[string]*StorageObject)
+func (s *Storage) ConfigGet(extraID, key string) (interface{}, error) {
+	if s.Configs == nil {
+		s.Configs = make(map[string]*StorageObject)
 	}
-	if _, exists := s.Extras[extraID]; exists {
-		return s.Extras[extraID].Get(key)
+	if _, exists := s.Configs[extraID]; exists {
+		val, err := s.Configs[extraID].Get(key)
+		if err != nil {
+			return nil, err
+		}
+		return val, nil
 	}
-	return nil, fmt.Errorf("invalid extra: %s:%s", extraID, key)
+	return nil, fmt.Errorf("invalid config: %s:%s", extraID, key)
 }
-func (s *Storage) ExtraSet(extraID, key string, val interface{}) {
-	if s.Extras == nil {
-		s.Extras = make(map[string]*StorageObject)
+func (s *Storage) ConfigSet(extraID, key string, val interface{}) {
+	if s.Configs == nil {
+		s.Configs = make(map[string]*StorageObject)
 	}
-	if _, exists := s.Extras[extraID]; !exists {
-		s.Extras[extraID] = &StorageObject{
+	if _, exists := s.Configs[extraID]; !exists {
+		s.Configs[extraID] = &StorageObject{
 			Data: make(map[string]interface{}),
 		}
 	}
-	s.Extras[extraID].Set(key, val)
+	s.Configs[extraID].Set(key, val)
+	s.Save()
 }
-func (s *Storage) ExtraDel(extraID, key string) {
-	if s.Extras == nil {
-		s.Extras = make(map[string]*StorageObject)
+func (s *Storage) ConfigDel(extraID, key string) {
+	if s.Configs == nil {
+		s.Configs = make(map[string]*StorageObject)
 	}
-	if _, exists := s.Extras[extraID]; exists {
-		s.Extras[extraID].Del(key)
+	if _, exists := s.Configs[extraID]; exists {
+		s.Configs[extraID].Del(key)
 	}
 }
 
@@ -106,6 +126,7 @@ func (s *Storage) ChannelSet(channelID, key string, val interface{}) {
 		}
 	}
 	s.Channels[channelID].Set(key, val)
+	s.Save()
 }
 func (s *Storage) ChannelDel(channelID, key string) {
 	if s.Channels == nil {
@@ -135,6 +156,7 @@ func (s *Storage) MessageSet(messageID, key string, val interface{}) {
 		}
 	}
 	s.Messages[messageID].Set(key, val)
+	s.Save()
 }
 func (s *Storage) MessageDel(messageID, key string) {
 	if s.Messages == nil {
@@ -164,6 +186,7 @@ func (s *Storage) ServerSet(serverID, key string, val interface{}) {
 		}
 	}
 	s.Servers[serverID].Set(key, val)
+	s.Save()
 }
 func (s *Storage) ServerDel(serverID, key string) {
 	if s.Servers == nil {
@@ -193,6 +216,7 @@ func (s *Storage) UserSet(userID, key string, val interface{}) {
 		}
 	}
 	s.Users[userID].Set(key, val)
+	s.Save()
 }
 func (s *Storage) UserDel(userID, key string) {
 	if s.Users == nil {
